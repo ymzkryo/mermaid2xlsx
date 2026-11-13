@@ -1,0 +1,26 @@
+classDiagram
+    class Order {
+        +int id
+        +Date orderedAt
+        +addItem(Product p, int qty) void
+        +total() int
+    }
+    class OrderItem {
+        +int quantity
+        +subtotal() int
+    }
+    class Product {
+        +String name
+        +int price
+    }
+    class PaymentMethod {
+        <<interface>>
+        +pay(int amount) bool
+    }
+    class CreditCard
+    class BankTransfer
+    Order "1" *-- "1..*" OrderItem : 含む
+    OrderItem --> Product
+    PaymentMethod <|.. CreditCard
+    PaymentMethod <|.. BankTransfer
+    Order ..> PaymentMethod : 使う

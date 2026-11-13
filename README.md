@@ -1,6 +1,7 @@
 # mermaid2xlsx
 
-Mermaid のシーケンス図を、**Excel のネイティブ図形**（四角・線・矢印・テキスト）で描いた `.xlsx` に変換する。
+Mermaid の図を、**Excel のネイティブ図形**（四角・線・矢印・テキスト）で描いた `.xlsx` に変換する。
+シーケンス図・フローチャート・状態遷移図・ER 図・クラス図に対応している。
 納品物で「Excel の図形で編集できること」が求められる場面向け。
 
 - 配置は Mermaid に任せる。`mmdc` で SVG を書き出し、その座標を DrawingML の図形に写す
@@ -11,11 +12,15 @@ Mermaid のシーケンス図を、**Excel のネイティブ図形**（四角�
 
 ```bash
 python3 mermaid2xlsx.py examples/sample.mmd -o out/sample.xlsx   # .mmd → mmdc → .xlsx
-python3 mermaid2xlsx.py a.mmd b.mmd -o docs.xlsx                  # 1 図 1 シート
+python3 mermaid2xlsx.py examples/*.mmd -o out/all.xlsx            # 1 図 1 シート
 python3 mermaid2xlsx.py examples/sample.svg -o out/sample.xlsx   # 書き出し済み SVG から
 ```
 
-変換結果の見本は `sample-out/`（`examples/sample.mmd` を変換した `.xlsx` と、それを Mac の Excel で PDF に書き出したもの）。
+変換結果の見本は `sample-out/`。どちらも `.xlsx` と、それを Mac の Excel で PDF に書き出したもの。
+
+- `sample.xlsx` / `sample.pdf`: シーケンス図（`examples/sample.mmd`）
+- `diagrams.xlsx` / `diagrams.pdf`: フローチャート・状態遷移図・ER 図・クラス図（`examples/` のほかの `.mmd`）。1 図 1 シート
+
 `out/` は手元で変換するときの置き場で、中身は git に入らない。
 
 | オプション | 内容 |
@@ -30,6 +35,10 @@ python3 mermaid2xlsx.py examples/sample.svg -o out/sample.xlsx   # 書き出し�
 ## 見た目を変える
 
 色・線の太さ・破線の種類・矢じり・フォントは **`theme.toml`** にまとめてある。各項目の意味と書ける値はファイル内のコメントに書いた。
+
+- **シーケンス図**: `[actor]` `[message]` `[note]` など、要素ごとの色・線を `theme.toml` で決める
+- **それ以外の図**: 色・線は Mermaid のテーマで決まり、その見た目をそのまま写す。`[mermaid] theme` で選ぶ（既定は白黒・グレー基調の `neutral`）
+- **フォント**（`[text] font`）はすべての図に効く
 
 - 全体の既定を変えるなら `theme.toml` を直接直す
 - 案件ごとに変えるなら、**変えたいところだけ**を書いた TOML を用意して `--theme` で渡す
@@ -64,12 +73,21 @@ python3 mermaid2xlsx.py examples/sample.mmd -o out/sample.xlsx --theme my-theme.
 - **Excel**: Microsoft 365 の Mac 版で確認済み。**Windows 版は未確認**
 - **フォント**: 既定の游ゴシックは Mac / Windows の両方に入っている。`--font` で変えるときは、開く側の環境にあるものを選ぶ
 
-## 対応している要素
+## 対応している図
 
-参加者（`participant` / `actor`）、ライフライン、メッセージ（`->>` `-->>` `-)` `--)` `-x`）、
-自分宛てメッセージ、`autonumber`、活性化、`alt` / `else` / `loop` / `opt` などの枠、ノート、`rect` の背景色。
+| 図 | 変換のしかた | 確認した要素 |
+| --- | --- | --- |
+| **シーケンス図** | 図の意味を読み取り、`theme.toml` の色で描き直す | 参加者（`participant` / `actor`）、ライフライン、メッセージ（`->>` `-->>` `-)` `--)` `-x`）、自分宛て、`autonumber`、活性化、`alt` / `else` / `loop` / `opt`、ノート、`rect` の背景色 |
+| **フローチャート** | SVG の見た目をそのまま写す | 四角・角丸・ひし形・円・円柱・平行四辺形・旗形、実線・点線・太線の矢印、矢印のラベル、`subgraph` |
+| **状態遷移図** | 同上 | 状態、開始・終了、遷移とラベル、入れ子の状態、ノート |
+| **ER 図** | 同上 | エンティティ（列の表）、リレーションと多重度の記号（鳥の足）、ラベル |
+| **クラス図** | 同上 | クラス（3 段の箱）、`<<interface>>`、継承（白抜きの三角）・コンポジション（ひし形）・依存・関連、多重度、ラベル |
 
-シーケンス図以外（フローチャートなど）は未対応。
+シーケンス図以外の変換について:
+
+- **ノードの文字は図形の中に入れる**ので、箱をダブルクリックすればそのまま書き換えられる。ER 図とクラス図の表は、各セルの文字が独立したテキストボックスになる
+- **矢じり**: 三角形の矢じりは Excel の線の矢じりにする（線を動かしても付いてくる）。白抜きの三角・ひし形・鳥の足など Excel に無い形は、記号を図形として線の端に置く（線を動かしたら記号も動かす必要がある）
+- 上の表以外の図（ガントチャート・円グラフなど）も同じ方法で写すが、確認していないので崩れることがある。そのときは警告を出す
 
 ## ライセンス
 
