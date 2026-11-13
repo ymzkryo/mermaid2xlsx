@@ -20,19 +20,41 @@ python3 mermaid2xlsx.py examples/sample.svg -o out/sample.xlsx   # 書き出し�
 
 | オプション | 内容 |
 | --- | --- |
-| `--font` | 図形の文字のフォント（既定: 游ゴシック。Mac / Win の両方にあるもの） |
+| `--theme FILE` | 見た目の設定（TOML）。書いた項目だけ既定の `theme.toml` を上書きする |
+| `--font` | 図形の文字のフォント。`theme.toml` の `[text] font`（既定: 游ゴシック）を上書きする |
 | `--scale` | 拡大率（既定 1.0） |
 | `--no-mirror-actors` | 図の下側の参加者を描かない |
 | `--keep-svg DIR` | 中間の SVG を残す |
 | `--mmdc CMD` | mmdc のコマンド（既定: PATH の `mmdc`、無ければ `npx @mermaid-js/mermaid-cli@11.4.2`） |
 
-色・線の太さ・破線の種類は `mermaid2xlsx.py` 冒頭の `THEME` で変える。
+## 見た目を変える
+
+色・線の太さ・破線の種類・矢じり・フォントは **`theme.toml`** にまとめてある。各項目の意味と書ける値はファイル内のコメントに書いた。
+
+- 全体の既定を変えるなら `theme.toml` を直接直す
+- 案件ごとに変えるなら、**変えたいところだけ**を書いた TOML を用意して `--theme` で渡す
+
+```toml
+# my-theme.toml — 参加者の箱を青系にして、ノートの枠線を消す
+[actor]
+fill = "DCEBFF"
+line = "1F4E79"
+
+[note]
+line = "none"
+```
+
+```bash
+python3 mermaid2xlsx.py examples/sample.mmd -o out/sample.xlsx --theme my-theme.toml
+```
+
+書き間違い（色が 6 桁でない、知らない項目名、使えない破線の種類など）は、変換を始める前にまとめて表示して止まる。
 
 ## 依存
 
 | 依存 | 必要な場面 | 内容 |
 | --- | --- | --- |
-| **Python 3.9 以上** | 常に | 標準ライブラリだけで動く。`pip install` は不要。3.9 / 3.10 / 3.11 / 3.12 / 3.13 / 3.14 で同じ出力になることを確認済み |
+| **Python 3.11 以上** | 常に | 標準ライブラリだけで動く。`pip install` は不要。`theme.toml` の読み込みに 3.11 からの `tomllib` を使う。3.11 / 3.12 / 3.13 / 3.14 で同じ出力になることを確認済み |
 | **Node.js（`npx`）** | `.mmd` を渡すとき | SVG の書き出しに使う。`.svg` を渡すときは不要。Node.js 23 で確認済み |
 | **[mermaid-cli](https://github.com/mermaid-js/mermaid-cli)** | `.mmd` を渡すとき | インストール不要。`npx` で `@mermaid-js/mermaid-cli@11.4.2` を固定して呼ぶ。PATH に `mmdc` があればそちらを使い、`--mmdc` で差し替えもできる |
 | **Chromium** | `.mmd` を渡すとき | mermaid-cli が内部で使う（puppeteer 経由）。**初回の実行時に自動でダウンロードされる**ので、その回だけ時間がかかる |
