@@ -30,8 +30,17 @@ python3 mermaid2xlsx.py examples/sample.svg -o out/sample.xlsx   # 書き出し�
 
 ## 依存
 
-- Python 3.11+（標準ライブラリのみ）
-- `.mmd` を渡すときは Node.js（`npx`）。初回は Chromium のダウンロードが走る
+| 依存 | 必要な場面 | 内容 |
+| --- | --- | --- |
+| **Python 3.9 以上** | 常に | 標準ライブラリだけで動く。`pip install` は不要。3.9 / 3.10 / 3.11 / 3.12 / 3.13 / 3.14 で同じ出力になることを確認済み |
+| **Node.js（`npx`）** | `.mmd` を渡すとき | SVG の書き出しに使う。`.svg` を渡すときは不要。Node.js 23 で確認済み |
+| **[mermaid-cli](https://github.com/mermaid-js/mermaid-cli)** | `.mmd` を渡すとき | インストール不要。`npx` で `@mermaid-js/mermaid-cli@11.4.2` を固定して呼ぶ。PATH に `mmdc` があればそちらを使い、`--mmdc` で差し替えもできる |
+| **Chromium** | `.mmd` を渡すとき | mermaid-cli が内部で使う（puppeteer 経由）。**初回の実行時に自動でダウンロードされる**ので、その回だけ時間がかかる |
+
+### 出力した `.xlsx` を開く側
+
+- **Excel**: Microsoft 365 の Mac 版で確認済み。**Windows 版は未確認**
+- **フォント**: 既定の游ゴシックは Mac / Windows の両方に入っている。`--font` で変えるときは、開く側の環境にあるものを選ぶ
 
 ## 対応している要素
 
