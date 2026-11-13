@@ -10,17 +10,24 @@
     python3 mermaid2xlsx.py a.mmd b.mmd -o docs.xlsx      # 1 図 1 シート
     python3 mermaid2xlsx.py examples/sample.svg            # 書き出し済みの SVG も可
 
-依存: Python 3.9+（標準ライブラリのみ）。.mmd を渡すときは Node.js（npx）。詳しくは README。
+依存: Python 3.11+（標準ライブラリのみ）。.mmd を渡すときは Node.js（npx）。詳しくは README。
+見た目（色・線・フォント・矢じり）は同じディレクトリの theme.toml で変える。
 """
 
 from __future__ import annotations
+
+import sys
+
+if sys.version_info < (3, 11):  # tomllib が 3.11 から
+    sys.exit("mermaid2xlsx は Python 3.11 以上が必要です"
+             f"（今は {sys.version_info.major}.{sys.version_info.minor}）")
 
 import argparse
 import re
 import shutil
 import subprocess
-import sys
 import tempfile
+import tomllib
 import unicodedata
 import zipfile
 from dataclasses import dataclass, field
@@ -32,36 +39,116 @@ MMDC_PACKAGE = "@mermaid-js/mermaid-cli@11.4.2"
 SVG_NS = "{http://www.w3.org/2000/svg}"
 EMU_PER_PX = 9525  # 96 dpi
 EMU_PER_PT = 12700
-MARGIN_PX = 10
+DEFAULT_THEME = Path(__file__).resolve().parent / "theme.toml"
 
-# ---------------------------------------------------------------------------
-# 見た目（ここを直せば全体の色・線が変わる）
-# ---------------------------------------------------------------------------
-THEME = {
-    "text": "000000",
-    "actor": {"fill": "F2F2F2", "line": "404040", "w": 1.0},
-    "actor_man": {"fill": "F2F2F2", "line": "404040", "w": 1.5},
-    "lifeline": {"line": "808080", "w": 0.75, "dash": "dash"},
-    "message": {"line": "333333", "w": 1.25},
-    "reply": {"line": "333333", "w": 1.25, "dash": "sysDash"},
-    "frame": {"line": "808080", "w": 1.0, "dash": "sysDot"},
-    "frame_sep": {"line": "808080", "w": 1.0, "dash": "dash"},
-    "label_box": {"fill": "E6E6E6", "line": "808080", "w": 1.0},
-    "note": {"fill": "FFF8C5", "line": "B0A040", "w": 1.0},
-    "activation": {"fill": "F4F4F4", "line": "666666", "w": 1.0},
-    "seq_number": {"fill": "333333", "r": 8, "text": "FFFFFF"},
-    "default": {"line": "333333", "w": 1.0},
+# SVG のマーカー id の末尾 → theme.toml の [arrows] のどれを使うか
+MARKER_TO_ROLE = {
+    "arrowhead": "sync",  # ->>  -->>
+    "filled-head": "async",  # -)   --)
+    "solidTopArrowHead": "sync",
+    "solidBottomArrowHead": "sync",
+    "stickTopArrowHead": "async",
+    "stickBottomArrowHead": "async",
 }
 
-# SVG のマーカー id の末尾 → DrawingML の矢じり
-MARKER_TO_ARROW = {
-    "arrowhead": "triangle",  # ->>  -->>
-    "filled-head": "arrow",  # -)   --)  （非同期は開いた矢じり）
-    "solidTopArrowHead": "triangle",
-    "solidBottomArrowHead": "triangle",
-    "stickTopArrowHead": "arrow",
-    "stickBottomArrowHead": "arrow",
-}
+
+# ---------------------------------------------------------------------------
+# 見た目の設定（theme.toml）
+# ---------------------------------------------------------------------------
+PRST_DASH = {"solid", "dot", "dash", "lgDash", "dashDot", "lgDashDot", "lgDashDotDot",
+             "sysDash", "sysDot", "sysDashDot", "sysDashDotDot"}
+ARROW_TYPES = {"triangle", "arrow", "stealth", "diamond", "oval", "none"}
+ARROW_SIZES = {"sm", "med", "lg"}
+STYLE_SECTIONS = {"actor", "actor_man", "lifeline", "message", "reply", "frame", "frame_sep",
+                  "label_box", "note", "activation", "default"}
+
+
+class ThemeError(ValueError):
+    pass
+
+
+def deep_merge(base: dict, over: dict) -> dict:
+    out = dict(base)
+    for k, v in over.items():
+        out[k] = deep_merge(out[k], v) if isinstance(v, dict) and isinstance(out.get(k), dict) else v
+    return out
+
+
+def load_theme(override: Path | None = None) -> dict:
+    """既定の theme.toml を読み、override があれば書いてある項目だけ上書きする。"""
+    def read(p: Path) -> dict:
+        try:
+            with open(p, "rb") as f:
+                return tomllib.load(f)
+        except FileNotFoundError:
+            raise ThemeError(f"テーマが見つかりません: {p}") from None
+        except tomllib.TOMLDecodeError as e:
+            raise ThemeError(f"{p} の書き方が TOML として正しくありません: {e}") from None
+
+    theme = read(DEFAULT_THEME)
+    if override is not None:
+        theme = deep_merge(theme, read(override))
+    validate_theme(theme)
+    return theme
+
+
+def validate_theme(t: dict) -> None:
+    """打ち間違いを Excel で開くまで気づかない、を避けるために読み込み時に弾く。"""
+    errors: list[str] = []
+
+    def color(where: str, v) -> None:
+        if not (isinstance(v, str) and (v == "none" or re.fullmatch(r"[0-9a-fA-F]{6}", v))):
+            errors.append(f"{where} = {v!r}: 色は 16 進 6 桁（例 \"333333\"）か \"none\"")
+
+    def number(where: str, v, lo: float = 0) -> None:
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or v < lo:
+            errors.append(f"{where} = {v!r}: {lo} 以上の数")
+
+    known = STYLE_SECTIONS | {"layout", "text", "arrows", "seq_number"}
+    for sec in t:
+        if sec not in known:
+            errors.append(f"[{sec}]: 知らないセクション（使えるのは {', '.join(sorted(known))}）")
+        elif not isinstance(t[sec], dict):
+            # 形が崩れたセクションは以降の検査が読めないので、ここで止める
+            raise ThemeError(f"テーマの設定に誤りがあります:\n  {sec} = {t[sec]!r}: "
+                             f"[{sec}] はセクションとして書く")
+
+    for sec in STYLE_SECTIONS:
+        s = t.get(sec, {})
+        for k, v in s.items():
+            where = f"[{sec}] {k}"
+            if k in ("fill", "line"):
+                color(where, v)
+            elif k == "w":
+                number(where, v)
+            elif k == "dash":
+                if v not in PRST_DASH:
+                    errors.append(f"{where} = {v!r}: 使えるのは {', '.join(sorted(PRST_DASH))}")
+            else:
+                errors.append(f"{where}: 知らない項目（使えるのは fill / line / w / dash）")
+
+    allowed = {"layout": {"margin"}, "text": {"font", "color"},
+               "arrows": {"sync", "async", "size"}, "seq_number": {"fill", "text", "r"}}
+    for sec, keys in allowed.items():
+        for k in t.get(sec, {}):
+            if k not in keys:
+                errors.append(f"[{sec}] {k}: 知らない項目（使えるのは {', '.join(sorted(keys))}）")
+
+    number("[layout] margin", t["layout"]["margin"])
+    if not (isinstance(t["text"]["font"], str) and t["text"]["font"].strip()):
+        errors.append("[text] font: フォント名を文字列で書く")
+    color("[text] color", t["text"]["color"])
+    for k in ("sync", "async"):
+        if t["arrows"][k] not in ARROW_TYPES:
+            errors.append(f"[arrows] {k} = {t['arrows'][k]!r}: 使えるのは {', '.join(sorted(ARROW_TYPES))}")
+    if t["arrows"]["size"] not in ARROW_SIZES:
+        errors.append(f"[arrows] size = {t['arrows']['size']!r}: 使えるのは sm / med / lg")
+    color("[seq_number] fill", t["seq_number"]["fill"])
+    color("[seq_number] text", t["seq_number"]["text"])
+    number("[seq_number] r", t["seq_number"]["r"], lo=1)
+
+    if errors:
+        raise ThemeError("テーマの設定に誤りがあります:\n  " + "\n  ".join(errors))
 
 
 # ---------------------------------------------------------------------------
@@ -173,9 +260,14 @@ def marker_id(v: str | None) -> str | None:
     return m.group(1) if m else None
 
 
-def theme_style(key: str) -> Style:
-    t = THEME[key]
-    return Style(fill=t.get("fill"), line=t.get("line"), w=t.get("w", 1.0), dash=t.get("dash"))
+def theme_color(v: str | None) -> str | None:
+    return None if v in (None, "none") else v.upper()
+
+
+def theme_style(theme: dict, key: str) -> Style:
+    t = theme.get(key, {})
+    return Style(fill=theme_color(t.get("fill")), line=theme_color(t.get("line")),
+                 w=float(t.get("w", 1.0)), dash=t.get("dash"))
 
 
 def text_lines(el: ET.Element) -> list[str]:
@@ -203,12 +295,24 @@ def text_width_px(s: str, size: float) -> float:
 
 
 class SvgConverter:
-    def __init__(self, mirror_actors: bool = True):
+    def __init__(self, theme: dict, mirror_actors: bool = True):
+        self.theme = theme
         self.mirror_actors = mirror_actors
         self.shapes: list[Shape] = []
         self.last_message_text = ""
         self.pending_seq: Shape | None = None
         self.counter = 0
+        self.text_color = theme_color(theme["text"]["color"]) or "000000"
+
+    def style(self, key: str) -> Style:
+        return theme_style(self.theme, key)
+
+    def arrow(self, marker: str | None) -> str | None:
+        role = MARKER_TO_ROLE.get(marker or "")
+        if role is None:
+            return None
+        kind = self.theme["arrows"][role]
+        return None if kind == "none" else kind
 
     def name(self, prefix: str, label: str = "") -> str:
         self.counter += 1
@@ -264,7 +368,7 @@ class SvgConverter:
         for tx in texts:
             lines.extend(text_lines(tx))
         shape.text = TextSpec(lines=lines, size_px=font_px(texts[0]), bold=is_bold(texts[0]),
-                              color=THEME["text"])
+                              color=self.text_color)
         label = " ".join(lines)
         shape.name = self.name("参加者" if "actor" in rc else "ノート", label)
         self.shapes.append(shape)
@@ -274,11 +378,11 @@ class SvgConverter:
     def rect_shape(self, el: ET.Element) -> Shape:
         cls = classes(el)
         if "actor" in cls:
-            st = theme_style("actor")
+            st = self.style("actor")
         elif "note" in cls:
-            st = theme_style("note")
+            st = self.style("note")
         elif any(c.startswith("activation") for c in cls):
-            st = theme_style("activation")
+            st = self.style("activation")
         else:  # rect ブロックの背景色など。SVG の属性をそのまま使う
             sm = style_map(el)
             st = Style(fill=parse_color(sm.get("fill") or el.get("fill")),
@@ -296,7 +400,7 @@ class SvgConverter:
         r = num(el.get("r"))
         cx, cy = num(el.get("cx")), num(el.get("cy"))
         self.shapes.append(Shape("ellipse", self.name("頭"), x=cx - r, y=cy - r, w=2 * r, h=2 * r,
-                                 style=theme_style("actor_man")))
+                                 style=self.style("actor_man")))
 
     def on_line(self, el: ET.Element) -> None:
         x1, y1, x2, y2 = (num(el.get(k)) for k in ("x1", "y1", "x2", "y2"))
@@ -305,10 +409,10 @@ class SvgConverter:
 
         # autonumber: 長さ 0 の線に丸のマーカーが付いている
         if start == "sequencenumber" or end == "sequencenumber":
-            sn = THEME["seq_number"]
+            sn = self.theme["seq_number"]
             r = sn["r"]
             s = Shape("ellipse", self.name("番号"), x=x1 - r, y=y1 - r, w=2 * r, h=2 * r,
-                      style=Style(fill=sn["fill"], line=None))
+                      style=Style(fill=theme_color(sn["fill"]), line=None))
             self.shapes.append(s)
             self.pending_seq = s
             return
@@ -316,23 +420,23 @@ class SvgConverter:
             return
 
         if "actor-line" in cls:
-            st, name = theme_style("lifeline"), self.name("ライフライン", el.get("name") or "")
+            st, name = self.style("lifeline"), self.name("ライフライン", el.get("name") or "")
         elif "messageLine1" in cls:
-            st, name = theme_style("reply"), self.name("応答", self.last_message_text)
+            st, name = self.style("reply"), self.name("応答", self.last_message_text)
         elif "messageLine0" in cls:
-            st = theme_style("message")
+            st = self.style("message")
             if has_dash(el):
                 st.dash = "sysDash"
             name = self.name("メッセージ", self.last_message_text)
         elif "loopLine" in cls:
-            st = theme_style("frame_sep" if has_dash(el) else "frame")
+            st = self.style("frame_sep" if has_dash(el) else "frame")
             name = self.name("枠線")
         else:
-            st, name = theme_style("default"), self.name("線")
+            st, name = self.style("default"), self.name("線")
             if has_dash(el):
                 st.dash = "dash"
         s = Shape("line", name, x1=x1, y1=y1, x2=x2, y2=y2, style=st,
-                  head=MARKER_TO_ARROW.get(start or ""), tail=MARKER_TO_ARROW.get(end or ""))
+                  head=self.arrow(start), tail=self.arrow(end))
         self.shapes.append(s)
         if end == "crosshead":
             self.add_cross(x2, y2, st)
@@ -349,18 +453,18 @@ class SvgConverter:
             return
         cls = classes(el)
         if "messageLine1" in cls:
-            st = theme_style("reply")
+            st = self.style("reply")
         elif "messageLine0" in cls:
-            st = theme_style("message")
+            st = self.style("message")
         else:
             sm = style_map(el)
             st = Style(fill=parse_color(sm.get("fill") or el.get("fill")),
-                       line=parse_color(sm.get("stroke") or el.get("stroke")) or THEME["default"]["line"])
+                       line=parse_color(sm.get("stroke") or el.get("stroke")) or self.style("default").line)
         end = marker_id(el.get("marker-end"))
         closed = any(op == "Z" for op, _ in segs)
         s = Shape("path", self.name("メッセージ" if cls & {"messageLine0", "messageLine1"} else "線",
                                     self.last_message_text), segments=segs, closed=closed, style=st,
-                  tail=MARKER_TO_ARROW.get(end or ""))
+                  tail=self.arrow(end))
         if not closed:
             s.style.fill = None
         self.shapes.append(s)
@@ -371,7 +475,7 @@ class SvgConverter:
         if len(pts) < 2:
             return
         segs = [("M", [pts[0]])] + [("L", [p]) for p in pts[1:]] + [("Z", [])]
-        st = theme_style("label_box") if "labelBox" in classes(el) else Style(
+        st = self.style("label_box") if "labelBox" in classes(el) else Style(
             fill=parse_color(el.get("fill")), line=parse_color(el.get("stroke")))
         self.shapes.append(Shape("path", self.name("枠ラベル"), segments=segs, closed=True, style=st))
 
@@ -385,7 +489,7 @@ class SvgConverter:
             # 2 桁でも丸に収まる大きさにする
             fit = size * (0.8 if len(lines[0]) < 2 else 0.65)
             self.pending_seq.text = TextSpec(lines=lines, size_px=fit, bold=True,
-                                             color=THEME["seq_number"]["text"])
+                                             color=theme_color(self.theme["seq_number"]["text"]) or "FFFFFF")
             self.pending_seq.name = self.name("番号", lines[0])
             self.pending_seq = None
             return
@@ -417,7 +521,7 @@ class SvgConverter:
         prefix = "メッセージ文字" if "messageText" in cls else "文字"
         self.shapes.append(Shape(
             "textbox", self.name(prefix, " ".join(lines)), x=left, y=cy - h / 2, w=w, h=h,
-            text=TextSpec(lines=lines, size_px=size, bold=is_bold(el), color=THEME["text"], align=align)))
+            text=TextSpec(lines=lines, size_px=size, bold=is_bold(el), color=self.text_color, align=align)))
 
 
 def parse_path(d: str) -> list[tuple[str, list[tuple[float, float]]]]:
@@ -458,8 +562,10 @@ def parse_path(d: str) -> list[tuple[str, list[tuple[float, float]]]]:
 # 中間表現 → DrawingML
 # ---------------------------------------------------------------------------
 class DrawingWriter:
-    def __init__(self, font: str, scale: float):
-        self.font = font
+    def __init__(self, theme: dict, scale: float):
+        self.font = theme["text"]["font"]
+        self.arrow_size = theme["arrows"]["size"]
+        self.margin = float(theme["layout"]["margin"])
         self.scale = scale
         self.next_id = 2
 
@@ -474,8 +580,9 @@ class DrawingWriter:
         if st.line is None:
             return "<a:ln><a:noFill/></a:ln>"
         dash = f'<a:prstDash val="{st.dash}"/>' if st.dash else ""
-        he = f'<a:headEnd type="{head}" w="med" len="med"/>' if head else ""
-        te = f'<a:tailEnd type="{tail}" w="med" len="med"/>' if tail else ""
+        sz = self.arrow_size
+        he = f'<a:headEnd type="{head}" w="{sz}" len="{sz}"/>' if head else ""
+        te = f'<a:tailEnd type="{tail}" w="{sz}" len="{sz}"/>' if tail else ""
         return (f'<a:ln w="{int(st.w * EMU_PER_PT * self.scale)}">'
                 f'<a:solidFill><a:srgbClr val="{st.line}"/></a:solidFill>{dash}'
                 f'<a:round/>{he}{te}</a:ln>')
@@ -560,10 +667,11 @@ class DrawingWriter:
 
     def drawing(self, shapes: list[Shape], title: str) -> str:
         boxes = [s.bbox() for s in shapes]
-        ox = min(b[0] for b in boxes) - MARGIN_PX
-        oy = min(b[1] for b in boxes) - MARGIN_PX
-        W = max(b[2] for b in boxes) - ox + MARGIN_PX
-        H = max(b[3] for b in boxes) - oy + MARGIN_PX
+        m = self.margin
+        ox = min(b[0] for b in boxes) - m
+        oy = min(b[1] for b in boxes) - m
+        W = max(b[2] for b in boxes) - ox + m
+        H = max(b[3] for b in boxes) - oy + m
         cx, cy = self.emu(W), self.emu(H)
         body = "".join(self.shape(s, ox, oy) for s in shapes)
         title = escape(title, {'"': "&quot;"})
@@ -697,12 +805,21 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Mermaid のシーケンス図を Excel の図形に変換する")
     p.add_argument("inputs", nargs="+", type=Path, help=".mmd または mmdc で書き出した .svg")
     p.add_argument("-o", "--output", type=Path, help="出力する .xlsx（省略時は最初の入力名.xlsx）")
-    p.add_argument("--font", default="游ゴシック", help="図形の文字のフォント（既定: 游ゴシック）")
+    p.add_argument("--theme", type=Path,
+                   help="見た目の設定（TOML）。書いた項目だけ既定の theme.toml を上書きする")
+    p.add_argument("--font", help="図形の文字のフォント（theme.toml の [text] font を上書き）")
     p.add_argument("--scale", type=float, default=1.0, help="拡大率（既定: 1.0 = SVG の 1px を 1px に）")
     p.add_argument("--no-mirror-actors", action="store_true", help="図の下側の参加者を描かない")
     p.add_argument("--keep-svg", type=Path, help="中間の SVG を残すディレクトリ")
     p.add_argument("--mmdc", help="mmdc のコマンド（既定: PATH の mmdc、無ければ npx で固定版）")
     a = p.parse_args(argv)
+
+    try:
+        theme = load_theme(a.theme)
+    except ThemeError as e:
+        sys.exit(str(e))
+    if a.font:
+        theme["text"]["font"] = a.font
 
     out = a.output or a.inputs[0].with_suffix(".xlsx")
     sheets, used = [], set()
@@ -716,13 +833,13 @@ def main(argv: list[str] | None = None) -> int:
                 svg = (a.keep_svg or Path(tmp)) / f"{src.stem}.svg"
                 svg.parent.mkdir(parents=True, exist_ok=True)
                 render_svg(src, svg, a.mmdc)
-            shapes = SvgConverter(mirror_actors=not a.no_mirror_actors).convert(svg)
+            shapes = SvgConverter(theme, mirror_actors=not a.no_mirror_actors).convert(svg)
             if not shapes:
                 sys.exit(f"図形が 1 つも取れませんでした: {src}")
             name = sheet_name(src.stem, used)
-            sheets.append((name, DrawingWriter(a.font, a.scale).drawing(shapes, name)))
+            sheets.append((name, DrawingWriter(theme, a.scale).drawing(shapes, name)))
             print(f"{src} -> sheet '{name}' ({len(shapes)} shapes)")
-    write_xlsx(out, sheets, a.font)
+    write_xlsx(out, sheets, theme["text"]["font"])
     print(f"wrote {out}")
     return 0
 

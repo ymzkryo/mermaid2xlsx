@@ -1,0 +1,98 @@
+# mermaid2xlsx の見た目の設定（既定値）
+#
+# 自分用に変えるときは、このファイルを直接直すか、変えたいところだけを書いた
+# 別の TOML を用意して `--theme my-theme.toml` で渡す（書いていない項目はここの値を使う）。
+#
+# 値の書き方
+#   色    : 16 進 6 桁（# は付けない）。"none" で塗りなし / 線なし
+#   w     : 線の太さ（pt）
+#   dash  : 破線の種類。"solid" / "dot" / "dash" / "lgDash" / "dashDot" / "lgDashDot" /
+#           "lgDashDotDot" / "sysDash" / "sysDot" / "sysDashDot" / "sysDashDotDot"
+#           （Excel の「線の種類」と同じもの。sys* は線の太さに合わせて間隔が詰まる）
+
+# 図の周りの余白（px）
+[layout]
+margin = 10
+
+# 文字
+[text]
+font = "游ゴシック"  # Mac / Windows の両方にあるフォントにする。--font で上書きできる
+color = "000000"
+
+# 矢じり
+#   種類: "triangle"（塗りつぶし）/ "arrow"（開いた矢じり）/ "stealth" / "diamond" / "oval" / "none"
+#   大きさ: "sm" / "med" / "lg"
+[arrows]
+sync = "triangle"   # ->>  -->>  同期メッセージ・応答
+async = "arrow"     # -)   --)   非同期メッセージ
+size = "med"
+
+# 参加者（participant）の箱
+[actor]
+fill = "F2F2F2"
+line = "404040"
+w = 1.0
+
+# 参加者（actor）の人型
+[actor_man]
+fill = "F2F2F2"
+line = "404040"
+w = 1.5
+
+# ライフライン（参加者から下に伸びる線）
+[lifeline]
+line = "808080"
+w = 0.75
+dash = "dash"
+
+# メッセージ（->>  ->  -)  -x）
+[message]
+line = "333333"
+w = 1.25
+
+# 応答（-->>  -->  --)  --x）
+[reply]
+line = "333333"
+w = 1.25
+dash = "sysDash"
+
+# alt / loop / opt などの枠線
+[frame]
+line = "808080"
+w = 1.0
+dash = "sysDot"
+
+# alt の else の区切り線
+[frame_sep]
+line = "808080"
+w = 1.0
+dash = "dash"
+
+# 枠の左上のラベル（alt / loop など）
+[label_box]
+fill = "E6E6E6"
+line = "808080"
+w = 1.0
+
+# ノート
+[note]
+fill = "FFF8C5"
+line = "B0A040"
+w = 1.0
+
+# 活性化（ライフライン上の細長い箱）
+[activation]
+fill = "F4F4F4"
+line = "666666"
+w = 1.0
+
+# autonumber の番号の丸
+[seq_number]
+fill = "333333"
+text = "FFFFFF"  # 番号の文字色
+r = 8            # 丸の半径（px）
+
+# 上のどれにも当てはまらない線
+[default]
+line = "333333"
+w = 1.0
