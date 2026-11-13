@@ -15,6 +15,9 @@ python3 mermaid2xlsx.py a.mmd b.mmd -o docs.xlsx                  # 1 図 1 シ�
 python3 mermaid2xlsx.py examples/sample.svg -o out/sample.xlsx   # 書き出し済み SVG から
 ```
 
+変換結果の見本は `sample-out/`（`examples/sample.mmd` を変換した `.xlsx` と、それを Mac の Excel で PDF に書き出したもの）。
+`out/` は手元で変換するときの置き場で、中身は git に入らない。
+
 | オプション | 内容 |
 | --- | --- |
 | `--font` | 図形の文字のフォント（既定: 游ゴシック。Mac / Win の両方にあるもの） |
