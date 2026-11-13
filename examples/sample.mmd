@@ -1,0 +1,40 @@
+sequenceDiagram
+    autonumber
+    actor U as ユーザー
+    participant W as Webフロント
+    participant A as APIサーバー
+    participant D as DB
+    participant M as メール送信
+
+    U->>W: ログイン画面を開く
+    W-->>U: ログインフォーム
+    U->>W: ID・パスワードを送信
+    W->>+A: POST /login
+    A->>D: ユーザーを検索
+    D-->>A: ユーザー情報
+
+    alt 認証成功
+        A->>A: トークンを発行
+        A-->>W: 200 OK（トークン）
+        W-->>U: マイページを表示
+    else 認証失敗
+        A-->>W: 401 Unauthorized
+        W-->>U: エラーメッセージ
+    end
+    deactivate A
+
+    Note over U,W: ここから注文の流れ
+
+    U->>W: カートの商品を注文する
+    W->>+A: POST /orders
+    loop 商品ごと
+        A->>D: 在庫を引き当てる
+        D-->>A: 引き当て結果
+    end
+    A->>D: 注文を保存
+    opt メール通知が有効
+        A-)M: 注文確認メールを送る（非同期）
+    end
+    Note right of M: 送信失敗は<br/>再送キューへ
+    A-->>-W: 201 Created
+    W-->>U: 注文完了画面
