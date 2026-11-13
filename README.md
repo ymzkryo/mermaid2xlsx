@@ -39,3 +39,7 @@ python3 mermaid2xlsx.py examples/sample.svg -o out/sample.xlsx   # 書き出し�
 自分宛てメッセージ、`autonumber`、活性化、`alt` / `else` / `loop` / `opt` などの枠、ノート、`rect` の背景色。
 
 シーケンス図以外（フローチャートなど）は未対応。
+
+## ライセンス
+
+[MIT](LICENSE)
