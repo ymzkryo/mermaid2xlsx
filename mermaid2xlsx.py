@@ -10,7 +10,7 @@
     python3 mermaid2xlsx.py a.mmd b.mmd -o docs.xlsx      # 1 図 1 シート
     python3 mermaid2xlsx.py examples/sample.svg            # 書き出し済みの SVG も可
 
-依存: Python 3.11+（標準ライブラリのみ）。.mmd を渡すときは Node.js（npx）。
+依存: Python 3.9+（標準ライブラリのみ）。.mmd を渡すときは Node.js（npx）。詳しくは README。
 """
 
 from __future__ import annotations
